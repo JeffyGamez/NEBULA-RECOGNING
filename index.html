@@ -1,40 +1,79 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>NEBULA_RECKONING_RPG</title>
+    <title>NEBULA_RECKONING_V2</title>
     <style>
-        body { margin: 0; background: #050505; color: #00ff88; font-family: 'Courier New', monospace; overflow: hidden; }
+        body { margin: 0; background: #020205; color: #a0d8ff; font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; }
+        canvas { display: block; }
+        
         #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-        .panel { position: absolute; background: rgba(0,20,10,0.9); border: 2px solid #00ff88; padding: 15px; pointer-events: all; }
-        #stats { top: 20px; left: 20px; }
+        
+        /* Glassmorphism UI */
+        .panel { 
+            position: absolute; 
+            background: rgba(10, 25, 45, 0.8); 
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 150, 255, 0.3); 
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            padding: 15px; 
+            pointer-events: all; 
+            border-radius: 8px;
+        }
+
+        #stats { top: 20px; left: 20px; width: 250px; }
         #inventory { top: 20px; right: 20px; width: 200px; }
-        #merchant-ui, #level-up { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; }
-        button { background: #000; border: 1px solid #00ff88; color: #00ff88; cursor: pointer; padding: 10px; width: 100%; margin-top: 5px; }
-        button:hover { background: #00ff88; color: #000; }
-        #world-info { bottom: 20px; left: 50%; transform: translateX(-50%); text-align: center; color: #fff; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 10px; }
+        
+        #merchant-ui { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            display: none; width: 350px; text-align: center;
+        }
+
+        .hp-container { width: 100%; height: 8px; background: #111; margin-top: 5px; border-radius: 4px; overflow: hidden; }
+        #hp-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #0088ff, #00ffcc); transition: width 0.3s; }
+
+        button { 
+            background: rgba(0, 100, 200, 0.2); border: 1px solid #0099ff; color: #fff; 
+            cursor: pointer; padding: 12px; width: 100%; margin-top: 10px; border-radius: 4px;
+            transition: 0.2s;
+        }
+        button:hover { background: rgba(0, 150, 255, 0.5); box-shadow: 0 0 10px #0099ff; }
+
+        #world-info { 
+            bottom: 40px; left: 50%; transform: translateX(-50%); 
+            text-align: center; color: #fff; text-shadow: 0 0 10px #0099ff;
+        }
+        .key-hint { background: #fff; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div id="ui">
     <div id="stats" class="panel">
-        LVL: <span id="lvl">1</span> | GEMS: <span id="gems">0</span><br>
-        HP: <div style="width:100px; height:10px; background:#222; display:inline-block;"><div id="hp-bar" style="width:100%; height:100%; background:#ff0055;"></div></div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+            <span>RANK: <b id="lvl">1</b></span>
+            <span>GEMS: <b id="gems">0</b></span>
+        </div>
+        SHIELD INTEGRITY
+        <div class="hp-container"><div id="hp-bar"></div></div>
     </div>
 
     <div id="inventory" class="panel">
-        <b>INVENTORY</b>
-        <div id="inv-list" style="font-size:12px; margin-top:10px;">- Empty -</div>
+        <b style="font-size: 0.8em; letter-spacing: 2px; color: #0099ff;">CARGO HOLD</b>
+        <div id="inv-list" style="font-size: 13px; margin-top: 10px; opacity: 0.8;">- Empty -</div>
     </div>
 
     <div id="merchant-ui" class="panel">
-        <h3>INTERGALACTIC MERCHANT</h3>
-        <button onclick="buy('shield')">Buy Edisite Shield (100 Gems)</button>
-        <button onclick="buy('armor')">Upgrade Armor (50 Gems)</button>
-        <button onclick="closeMerchant()">Exit</button>
+        <h2 style="margin-top:0; color:#00d2ff;">OUTPOST TRADER</h2>
+        <p style="font-size: 0.9em;">"Looking for tech to survive the outer rim?"</p>
+        <button onclick="buy('shield')">Edisite Shield <span style="float:right;">100 Gems</span></button>
+        <button onclick="buy('armor')">Alloy Plating <span style="float:right;">50 Gems</span></button>
+        <button onclick="closeMerchant()" style="border:none; color:#777;">[ Close ]</button>
     </div>
 
-    <div id="world-info">PORTAL TO WORLD #<span id="wnum">?</span><br><small>Press [E] to ENTER</small></div>
+    <div id="world-info" style="opacity: 0;">
+        <span style="font-size: 1.2em;">APPROACHING WORLD #<span id="wnum">0</span></span><br>
+        <small>PRESS <span class="key-hint">E</span> TO INITIATE LANDING</small>
+    </div>
 </div>
 
 <canvas id="g"></canvas>
@@ -43,22 +82,36 @@
 const canvas = document.getElementById('g');
 const ctx = canvas.getContext('2d');
 
-// --- GAME STATE ---
-let mode = 'HUB'; // HUB or DUNGEON
+let mode = 'HUB';
 let player = { x: 0, y: 0, gems: 0, lvl: 1, hp: 100, inv: [], hasShield: false };
 let worlds = [];
+let stars = [];
 let keys = {};
-let currentWorld = null;
 
-// Generate 100 Worlds in No Man's Land
+// Create Starfield for Depth
+function genSpace() {
+    stars = [];
+    for(let i=0; i<600; i++) {
+        stars.push({
+            x: (Math.random() - 0.5) * 4000,
+            y: (Math.random() - 0.5) * 4000,
+            size: Math.random() * 2,
+            opacity: Math.random(),
+            depth: Math.random() * 0.5 + 0.1 // Parallax factor
+        });
+    }
+}
+
 function genWorlds() {
+    worlds = [];
     for(let i=1; i<=100; i++) {
         worlds.push({
             id: i,
-            x: (Math.random() - 0.5) * 3000,
-            y: (Math.random() - 0.5) * 3000,
-            difficulty: Math.floor(Math.random() * 60) + 1,
-            boss: i === 33 ? 'Main Computer' : (i === 66 ? 'Plutonium Giant' : (i === 100 ? 'Hyperdrive Core' : null))
+            x: (Math.random() - 0.5) * 3500,
+            y: (Math.random() - 0.5) * 3500,
+            size: 20 + Math.random() * 30,
+            hue: Math.floor(Math.random() * 360),
+            difficulty: i
         });
     }
 }
@@ -66,77 +119,111 @@ function genWorlds() {
 function init() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    genSpace();
     genWorlds();
 }
 
 function draw() {
-    ctx.fillStyle = '#050505';
+    // Background: Deep Blue Gradient
+    let grad = ctx.createRadialGradient(canvas.width/2, canvas.height/2, 0, canvas.width/2, canvas.height/2, canvas.width);
+    grad.addColorStop(0, '#0a192d');
+    grad.addColorStop(1, '#020205');
+    ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const cx = canvas.width/2 - player.x;
     const cy = canvas.height/2 - player.y;
 
+    // 1. Draw Stars (With Parallax)
+    stars.forEach(s => {
+        ctx.fillStyle = `rgba(255, 255, 255, ${s.opacity})`;
+        // The further "back" the star, the slower it moves
+        ctx.beginPath();
+        ctx.arc(cx * s.depth + s.x, cy * s.depth + s.y, s.size, 0, Math.PI*2);
+        ctx.fill();
+    });
+
     if(mode === 'HUB') {
-        // Draw Wrecked Meteor Ship
-        ctx.fillStyle = '#444';
-        ctx.beginPath(); ctx.arc(cx, cy, 80, 0, Math.PI*2); ctx.fill();
-        ctx.fillStyle = '#00ff88'; ctx.fillText("CRASHED METEOR SHIP", cx-50, cy-90);
+        // 2. Draw Crashed Ship (The Base)
+        ctx.shadowBlur = 20; ctx.shadowColor = "#0088ff";
+        ctx.fillStyle = '#1a2a3a';
+        ctx.beginPath(); ctx.arc(cx, cy, 60, 0, Math.PI*2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "#fff"; ctx.fillText("BASE STATION", cx-35, cy-75);
 
-        // Draw Merchant
-        ctx.fillStyle = '#ffed00';
-        ctx.fillRect(cx + 150, cy - 50, 40, 40);
-        ctx.fillText("MERCHANT", cx + 145, cy - 60);
+        // 3. Draw Merchant Outpost
+        ctx.fillStyle = '#ffcc00';
+        ctx.fillRect(cx + 200, cy - 100, 50, 50);
+        ctx.fillStyle = '#fff'; ctx.fillText("TRADER", cx + 205, cy - 110);
 
-        // Draw Portals (The 100 Worlds)
+        // 4. Draw Worlds
         let nearWorld = null;
         worlds.forEach(w => {
             let dist = Math.sqrt((player.x - w.x)**2 + (player.y - w.y)**2);
-            ctx.strokeStyle = `hsl(${w.id * 3.6}, 100%, 50%)`;
-            ctx.beginPath(); ctx.arc(cx + w.x, cy + w.y, 30, 0, Math.PI*2); ctx.stroke();
-            if(dist < 50) nearWorld = w;
+            
+            // Glow effect
+            ctx.shadowBlur = 15; ctx.shadowColor = `hsl(${w.hue}, 100%, 50%)`;
+            ctx.strokeStyle = `hsl(${w.hue}, 80%, 60%)`;
+            ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.arc(cx + w.x, cy + w.y, w.size, 0, Math.PI*2); ctx.stroke();
+            ctx.shadowBlur = 0;
+
+            if(dist < 70) nearWorld = w;
         });
 
+        // Interaction Logic
         document.getElementById('world-info').style.opacity = nearWorld ? 1 : 0;
         if(nearWorld) {
             document.getElementById('wnum').innerText = nearWorld.id;
             if(keys['e']) enterWorld(nearWorld);
         }
 
-        // Check Merchant collision
-        let mDist = Math.sqrt((player.x - 170)**2 + (player.y - (-30))**2);
-        if(mDist < 60 && keys['e']) document.getElementById('merchant-ui').style.display = 'block';
+        let mDist = Math.sqrt((player.x - 225)**2 + (player.y - (-75))**2);
+        if(mDist < 80) {
+            if(keys['e']) document.getElementById('merchant-ui').style.display = 'block';
+        } else {
+            closeMerchant();
+        }
 
-    } else if(mode === 'DUNGEON') {
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0,0,canvas.width, canvas.height);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(`EXPLORING WORLD #${currentWorld.id} (DIFFICULTY: ${currentWorld.difficulty})`, 50, 50);
-        ctx.fillText("BOSS: " + (currentWorld.boss || "None"), 50, 70);
-        if(keys['q']) mode = 'HUB'; // Escape
+    } else {
+        // Dungeon / Exploration Mode
+        ctx.fillStyle = "rgba(255,255,255,0.1)";
+        ctx.fillText("SECTOR EXPLORATION IN PROGRESS...", 50, 50);
+        if(keys['q']) mode = 'HUB';
     }
 
-    // Player
+    // 5. Draw Player (Starfighter)
+    ctx.save();
+    ctx.translate(canvas.width/2, canvas.height/2);
     ctx.fillStyle = '#fff';
-    ctx.fillRect(canvas.width/2-10, canvas.height/2-10, 20, 20);
+    // Draw a little ship shape
+    ctx.beginPath();
+    ctx.moveTo(0, -15); ctx.lineTo(10, 10); ctx.lineTo(-10, 10);
+    ctx.closePath(); ctx.fill();
+    // Engine glow
+    ctx.fillStyle = "#00d2ff";
+    ctx.beginPath(); ctx.arc(0, 12, 5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
 
     update();
     requestAnimationFrame(draw);
 }
 
 function update() {
-    if(keys['w']) player.y -= 5;
-    if(keys['s']) player.y += 5;
-    if(keys['a']) player.x -= 5;
-    if(keys['d']) player.x += 5;
+    let speed = 6;
+    if(keys['w']) player.y -= speed;
+    if(keys['s']) player.y += speed;
+    if(keys['a']) player.x -= speed;
+    if(keys['d']) player.x += speed;
 
     document.getElementById('gems').innerText = player.gems;
     document.getElementById('lvl').innerText = player.lvl;
+    document.getElementById('hp-bar').style.width = player.hp + "%";
 }
 
 function enterWorld(w) {
-    currentWorld = w;
-    if(w.difficulty > 10 && !player.hasShield) {
-        alert("CRITICAL ERROR: High radiation detected. You need an Edisite Shield to survive this world's explosion!");
+    if(w.difficulty > 20 && !player.hasShield) {
+        alert("WARNING: SEVERE RADIATION. Shielding Required.");
         return;
     }
     mode = 'DUNGEON';
@@ -144,16 +231,18 @@ function enterWorld(w) {
 
 function buy(item) {
     if(item === 'shield' && player.gems >= 100) {
-        player.gems -= 100;
-        player.hasShield = true;
+        player.gems -= 100; player.hasShield = true;
         player.inv.push("Edisite Shield");
-        updateInv();
-        alert("Shield acquired!");
+    } else if (item === 'armor' && player.gems >= 50) {
+        player.gems -= 50; player.inv.push("Alloy Plating");
+    } else {
+        alert("Insufficient Gems.");
     }
+    updateInv();
 }
 
 function updateInv() {
-    document.getElementById('inv-list').innerHTML = player.inv.map(i => `- ${i}`).join('<br>');
+    document.getElementById('inv-list').innerHTML = player.inv.length ? player.inv.map(i => `• ${i}`).join('<br>') : "- Empty -";
 }
 
 function closeMerchant() { document.getElementById('merchant-ui').style.display = 'none'; }
