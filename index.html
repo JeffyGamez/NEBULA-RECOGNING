@@ -1,242 +1,168 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>NEBULA_RECKONING_OVERDRIVE</title>
+    <title>NEBULA_RECKONING_RPG</title>
     <style>
-        :root { --neon: #00ff88; --danger: #ff0055; --boss: #ff00ff; --gui: rgba(10, 10, 10, 0.9); }
-        body { margin: 0; background: #000; color: var(--neon); font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; user-select: none; }
-        
-        #hud { position: absolute; top: 0; left: 0; width: 100%; padding: 20px; box-sizing: border-box; pointer-events: none; display: flex; justify-content: space-between; z-index: 10; }
-        .stat-box { background: var(--gui); border: 1px solid #333; padding: 10px; min-width: 150px; }
-        .bar-container { width: 100%; height: 8px; background: #222; margin-top: 5px; border-radius: 4px; overflow: hidden; }
-        #hp-bar { height: 100%; background: var(--danger); width: 100%; transition: 0.2s; }
-        #xp-bar { height: 100%; background: #00ccff; width: 0%; transition: 0.2s; }
-
-        #level-up-modal { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: var(--gui); border: 2px solid var(--neon); padding: 30px;
-            display: none; flex-direction: column; gap: 15px; z-index: 100; text-align: center;
-            box-shadow: 0 0 50px rgba(0, 255, 136, 0.2);
-        }
-        .upgrade-btn { 
-            background: #222; border: 1px solid var(--neon); color: var(--neon); 
-            padding: 15px; cursor: pointer; font-weight: bold; pointer-events: all;
-        }
-        .upgrade-btn:hover { background: var(--neon); color: #000; }
-        
-        canvas { display: block; cursor: crosshair; }
-        #boss-warning { 
-            position: absolute; top: 20%; width: 100%; text-align: center; 
-            color: var(--danger); font-size: 50px; font-weight: bold; 
-            display: none; animation: blink 0.5s infinite; 
-        }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+        body { margin: 0; background: #050505; color: #00ff88; font-family: 'Courier New', monospace; overflow: hidden; }
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .panel { position: absolute; background: rgba(0,20,10,0.9); border: 2px solid #00ff88; padding: 15px; pointer-events: all; }
+        #stats { top: 20px; left: 20px; }
+        #inventory { top: 20px; right: 20px; width: 200px; }
+        #merchant-ui, #level-up { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none; }
+        button { background: #000; border: 1px solid #00ff88; color: #00ff88; cursor: pointer; padding: 10px; width: 100%; margin-top: 5px; }
+        button:hover { background: #00ff88; color: #000; }
+        #world-info { bottom: 20px; left: 50%; transform: translateX(-50%); text-align: center; color: #fff; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 10px; }
     </style>
 </head>
 <body>
 
-    <div id="hud">
-        <div class="stat-box">
-            CORE INTEGRITY
-            <div class="bar-container"><div id="hp-bar"></div></div>
-            <div id="lvl-display" style="margin-top:10px; font-weight:bold;">RECKONER LVL: 1</div>
-        </div>
-        <div class="stat-box" style="text-align: right;">
-            DATA SYNC
-            <div class="bar-container"><div id="xp-bar"></div></div>
-            <div id="score-display" style="margin-top:10px;">FRAGMENTS: 0</div>
-        </div>
+<div id="ui">
+    <div id="stats" class="panel">
+        LVL: <span id="lvl">1</span> | GEMS: <span id="gems">0</span><br>
+        HP: <div style="width:100px; height:10px; background:#222; display:inline-block;"><div id="hp-bar" style="width:100%; height:100%; background:#ff0055;"></div></div>
     </div>
 
-    <div id="level-up-modal">
-        <h1 style="margin:0">LEVEL UP</h1>
-        <p>Choose an Augmentation:</p>
-        <button class="upgrade-btn" onclick="upgrade('damage')">PLASMA OVERCHARGE (+DMG)</button>
-        <button class="upgrade-btn" onclick="upgrade('speed')">REFLEX BOOST (+MOVE SPEED)</button>
-        <button class="upgrade-btn" onclick="upgrade('fireRate')">RAPID DISCHARGE (+FIRE RATE)</button>
-        <button class="upgrade-btn" onclick="upgrade('multishot')">SPLIT-BEAM (ADD PROJECTILE)</button>
+    <div id="inventory" class="panel">
+        <b>INVENTORY</b>
+        <div id="inv-list" style="font-size:12px; margin-top:10px;">- Empty -</div>
     </div>
 
-    <div id="boss-warning">ANOMALY DETECTED: BOSS APPROACHING</div>
-    <canvas id="g"></canvas>
+    <div id="merchant-ui" class="panel">
+        <h3>INTERGALACTIC MERCHANT</h3>
+        <button onclick="buy('shield')">Buy Edisite Shield (100 Gems)</button>
+        <button onclick="buy('armor')">Upgrade Armor (50 Gems)</button>
+        <button onclick="closeMerchant()">Exit</button>
+    </div>
+
+    <div id="world-info">PORTAL TO WORLD #<span id="wnum">?</span><br><small>Press [E] to ENTER</small></div>
+</div>
+
+<canvas id="g"></canvas>
 
 <script>
-    const canvas = document.getElementById('g');
-    const ctx = canvas.getContext('2d');
-    
-    // --- GAME CONFIG ---
-    let state = 'PLAY';
-    let p = { x:0, y:0, hp:100, xp:0, nextXp:100, lvl:1, speed:4, dmg:10, fr:400, multi:1, lastShot:0 };
-    let enemies = [], bullets = [], particles = [];
-    let cam = { x:0, y:0 }, mouse = { x:0, y:0 }, keys = {};
-    let bossSpawned = false, score = 0, ticks = 0;
+const canvas = document.getElementById('g');
+const ctx = canvas.getContext('2d');
 
-    function init() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+// --- GAME STATE ---
+let mode = 'HUB'; // HUB or DUNGEON
+let player = { x: 0, y: 0, gems: 0, lvl: 1, hp: 100, inv: [], hasShield: false };
+let worlds = [];
+let keys = {};
+let currentWorld = null;
+
+// Generate 100 Worlds in No Man's Land
+function genWorlds() {
+    for(let i=1; i<=100; i++) {
+        worlds.push({
+            id: i,
+            x: (Math.random() - 0.5) * 3000,
+            y: (Math.random() - 0.5) * 3000,
+            difficulty: Math.floor(Math.random() * 60) + 1,
+            boss: i === 33 ? 'Main Computer' : (i === 66 ? 'Plutonium Giant' : (i === 100 ? 'Hyperdrive Core' : null))
+        });
     }
+}
 
-    // --- ENTITY TYPES ---
-    class Enemy {
-        constructor(x, y, type) {
-            this.x = x; this.y = y; this.type = type;
-            this.hp = type === 'BOSS' ? 2000 : (type === 'STALKER' ? 50 : 20);
-            this.speed = type === 'STALKER' ? 3 : 1.5;
-            this.size = type === 'BOSS' ? 80 : (type === 'STALKER' ? 20 : 15);
-            this.rot = 0;
-        }
-        draw() {
-            let screenX = this.x - cam.x + canvas.width/2;
-            let screenY = this.y - cam.y + canvas.height/2;
-            this.rot += 0.05;
-            ctx.save();
-            ctx.translate(screenX, screenY);
-            ctx.rotate(this.rot);
-            
-            if(this.type === 'SCOUT') {
-                ctx.strokeStyle = '#ff0055';
-                ctx.strokeRect(-this.size, -this.size, this.size*2, this.size*2);
-            } else if(this.type === 'STALKER') {
-                ctx.strokeStyle = '#ff8800';
-                ctx.beginPath();
-                for(let i=0; i<3; i++) {
-                    ctx.rotate((Math.PI*2)/3);
-                    ctx.moveTo(0, -this.size*1.5); ctx.lineTo(this.size, this.size);
-                }
-                ctx.stroke();
-            } else if(this.type === 'BOSS') {
-                ctx.strokeStyle = '#ff00ff';
-                ctx.lineWidth = 4;
-                ctx.strokeRect(-this.size, -this.size, this.size*2, this.size*2);
-                ctx.rotate(-this.rot*2);
-                ctx.strokeRect(-this.size/1.5, -this.size/1.5, this.size*1.3, this.size*1.3);
-                // Boss Health Bar
-                ctx.fillStyle = '#ff00ff';
-                ctx.fillRect(-this.size, -this.size-20, (this.hp/2000)*(this.size*2), 5);
-            }
-            ctx.restore();
-        }
-    }
+function init() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    genWorlds();
+}
 
-    // --- GAME LOOP ---
-    function update() {
-        if(state !== 'PLAY') return;
-        ticks++;
+function draw() {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Player Movement
-        if(keys['w']) p.y -= p.speed; if(keys['s']) p.y += p.speed;
-        if(keys['a']) p.x -= p.speed; if(keys['d']) p.x += p.speed;
-        cam.x += (p.x - cam.x) * 0.1; cam.y += (p.y - cam.y) * 0.1;
+    const cx = canvas.width/2 - player.x;
+    const cy = canvas.height/2 - player.y;
 
-        // Auto-Firing (Click or Space)
-        if((keys[' '] || keys['mousedown']) && Date.now() - p.lastShot > p.fr) {
-            for(let i=0; i<p.multi; i++) {
-                let angle = Math.atan2(mouse.y - canvas.height/2, mouse.x - canvas.width/2);
-                let spread = (i - (p.multi-1)/2) * 0.2;
-                bullets.push({x:p.x, y:p.y, vx:Math.cos(angle+spread)*12, vy:Math.sin(angle+spread)*12, life:100});
-            }
-            p.lastShot = Date.now();
-        }
+    if(mode === 'HUB') {
+        // Draw Wrecked Meteor Ship
+        ctx.fillStyle = '#444';
+        ctx.beginPath(); ctx.arc(cx, cy, 80, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#00ff88'; ctx.fillText("CRASHED METEOR SHIP", cx-50, cy-90);
 
-        // Enemy Logic
-        if(ticks % 60 === 0 && !bossSpawned) spawn('SCOUT');
-        if(ticks % 180 === 0 && !bossSpawned) spawn('STALKER');
-        if(score >= 50 && !bossSpawned) spawnBoss();
+        // Draw Merchant
+        ctx.fillStyle = '#ffed00';
+        ctx.fillRect(cx + 150, cy - 50, 40, 40);
+        ctx.fillText("MERCHANT", cx + 145, cy - 60);
 
-        enemies.forEach((en, ei) => {
-            let dx = p.x - en.x, dy = p.y - en.y, dist = Math.sqrt(dx*dx+dy*dy);
-            en.x += (dx/dist) * en.speed; en.y += (dy/dist) * en.speed;
-            if(dist < en.size + 10) { p.hp -= 0.5; document.getElementById('hp-bar').style.width = p.hp+'%'; }
-            
-            bullets.forEach((b, bi) => {
-                let bdx = b.x - en.x, bdy = b.y - en.y, bDist = Math.sqrt(bdx*bdx+bdy*bdy);
-                if(bDist < en.size) {
-                    en.hp -= p.dmg; bullets.splice(bi, 1);
-                    if(en.hp <= 0) {
-                        enemies.splice(ei, 1);
-                        score += en.type === 'BOSS' ? 500 : 5;
-                        p.xp += en.type === 'BOSS' ? 100 : 25;
-                        checkLvl();
-                    }
-                }
-            });
+        // Draw Portals (The 100 Worlds)
+        let nearWorld = null;
+        worlds.forEach(w => {
+            let dist = Math.sqrt((player.x - w.x)**2 + (player.y - w.y)**2);
+            ctx.strokeStyle = `hsl(${w.id * 3.6}, 100%, 50%)`;
+            ctx.beginPath(); ctx.arc(cx + w.x, cy + w.y, 30, 0, Math.PI*2); ctx.stroke();
+            if(dist < 50) nearWorld = w;
         });
 
-        bullets.forEach((b, i) => { b.x += b.vx; b.y += b.vy; b.life--; if(b.life < 0) bullets.splice(i,1); });
-        if(p.hp <= 0) { alert("CONNECTION LOST. SCORE: " + score); location.reload(); }
-    }
-
-    function draw() {
-        ctx.fillStyle = '#000'; ctx.fillRect(0,0,canvas.width, canvas.height);
-        
-        // Draw Grid
-        ctx.strokeStyle = '#111';
-        for(let x = -p.x % 50; x < canvas.width; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
-        for(let y = -p.y % 50; y < canvas.height; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
-
-        // Draw Player
-        ctx.strokeStyle = varColor('--neon');
-        ctx.lineWidth = 3;
-        ctx.strokeRect(canvas.width/2 - 12, canvas.height/2 - 12, 24, 24);
-        
-        enemies.forEach(en => en.draw());
-        bullets.forEach(b => {
-            ctx.fillStyle = '#00ccff';
-            ctx.fillRect(b.x - cam.x + canvas.width/2, b.y - cam.y + canvas.height/2, 4, 4);
-        });
-
-        document.getElementById('score-display').innerText = `FRAGMENTS: ${score}`;
-        requestAnimationFrame(() => { update(); draw(); });
-    }
-
-    // --- HELPER FUNCTIONS ---
-    function spawn(type) {
-        let a = Math.random()*Math.PI*2;
-        enemies.push(new Enemy(p.x + Math.cos(a)*800, p.y + Math.sin(a)*800, type));
-    }
-
-    function spawnBoss() {
-        bossSpawned = true;
-        document.getElementById('boss-warning').style.display = 'block';
-        setTimeout(() => {
-            document.getElementById('boss-warning').style.display = 'none';
-            spawn('BOSS');
-        }, 3000);
-    }
-
-    function checkLvl() {
-        document.getElementById('xp-bar').style.width = (p.xp / p.nextXp)*100 + '%';
-        if(p.xp >= p.nextXp) {
-            state = 'LEVEL_UP';
-            document.getElementById('level-up-modal').style.display = 'flex';
+        document.getElementById('world-info').style.opacity = nearWorld ? 1 : 0;
+        if(nearWorld) {
+            document.getElementById('wnum').innerText = nearWorld.id;
+            if(keys['e']) enterWorld(nearWorld);
         }
+
+        // Check Merchant collision
+        let mDist = Math.sqrt((player.x - 170)**2 + (player.y - (-30))**2);
+        if(mDist < 60 && keys['e']) document.getElementById('merchant-ui').style.display = 'block';
+
+    } else if(mode === 'DUNGEON') {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0,0,canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(`EXPLORING WORLD #${currentWorld.id} (DIFFICULTY: ${currentWorld.difficulty})`, 50, 50);
+        ctx.fillText("BOSS: " + (currentWorld.boss || "None"), 50, 70);
+        if(keys['q']) mode = 'HUB'; // Escape
     }
 
-    function upgrade(type) {
-        if(type === 'damage') p.dmg += 10;
-        if(type === 'speed') p.speed += 1.5;
-        if(type === 'fireRate') p.fr = Math.max(100, p.fr - 80);
-        if(type === 'multishot') p.multi++;
-        
-        p.lvl++;
-        p.xp = 0;
-        p.nextXp += 50;
-        state = 'PLAY';
-        document.getElementById('level-up-modal').style.display = 'none';
-        document.getElementById('lvl-display').innerText = `RECKONER LVL: ${p.lvl}`;
-        document.getElementById('xp-bar').style.width = '0%';
+    // Player
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(canvas.width/2-10, canvas.height/2-10, 20, 20);
+
+    update();
+    requestAnimationFrame(draw);
+}
+
+function update() {
+    if(keys['w']) player.y -= 5;
+    if(keys['s']) player.y += 5;
+    if(keys['a']) player.x -= 5;
+    if(keys['d']) player.x += 5;
+
+    document.getElementById('gems').innerText = player.gems;
+    document.getElementById('lvl').innerText = player.lvl;
+}
+
+function enterWorld(w) {
+    currentWorld = w;
+    if(w.difficulty > 10 && !player.hasShield) {
+        alert("CRITICAL ERROR: High radiation detected. You need an Edisite Shield to survive this world's explosion!");
+        return;
     }
+    mode = 'DUNGEON';
+}
 
-    function varColor(name) { return getComputedStyle(document.documentElement).getPropertyValue(name); }
+function buy(item) {
+    if(item === 'shield' && player.gems >= 100) {
+        player.gems -= 100;
+        player.hasShield = true;
+        player.inv.push("Edisite Shield");
+        updateInv();
+        alert("Shield acquired!");
+    }
+}
 
-    window.onkeydown = e => keys[e.key.toLowerCase()] = true;
-    window.onkeyup = e => keys[e.key.toLowerCase()] = false;
-    window.onmousedown = () => keys['mousedown'] = true;
-    window.onmouseup = () => keys['mousedown'] = false;
-    window.onmousemove = e => { mouse.x = e.clientX; mouse.y = e.clientY; };
-    
-    init(); draw();
+function updateInv() {
+    document.getElementById('inv-list').innerHTML = player.inv.map(i => `- ${i}`).join('<br>');
+}
+
+function closeMerchant() { document.getElementById('merchant-ui').style.display = 'none'; }
+
+window.onkeydown = e => keys[e.key.toLowerCase()] = true;
+window.onkeyup = e => keys[e.key.toLowerCase()] = false;
+window.onresize = init;
+
+init(); draw();
 </script>
 </body>
 </html>
