@@ -1,153 +1,205 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>3D_QUANTUM_CUBE</title>
+    <meta charset="UTF-8">
+    <title>NEBULA_RECKONING_v1.0</title>
     <style>
-        body { background: #050505; color: #00ff88; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
-        #ui { position: absolute; top: 20px; z-index: 10; display: flex; gap: 10px; }
-        button { background: #000; border: 1px solid #00ff88; color: #00ff88; padding: 10px 20px; cursor: pointer; font-family: inherit; font-weight: bold; }
-        button:hover { background: #00ff88; color: #000; }
-        canvas { display: block; cursor: grab; }
-        canvas:active { cursor: grabbing; }
-        #info { position: absolute; bottom: 20px; font-size: 12px; opacity: 0.6; pointer-events: none; }
+        :root { --neon: #00ff88; --dark: #050505; --ui: #111; }
+        body { margin: 0; background: var(--dark); color: var(--neon); font-family: 'Consolas', monospace; overflow: hidden; }
+        
+        /* UI LAYOUT */
+        #game-container { display: grid; grid-template-columns: 1fr 300px; height: 100vh; }
+        #render-zone { position: relative; border-right: 2px solid #222; }
+        #sidebar { background: var(--ui); padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+        
+        /* GAUGES */
+        .bar { height: 10px; background: #222; border: 1px solid #444; position: relative; margin-top: 5px; }
+        .fill { height: 100%; transition: width 0.3s; }
+        #hp-fill { background: #ff4444; box-shadow: 0 0 10px #ff4444; }
+        #xp-fill { background: #4444ff; box-shadow: 0 0 10px #4444ff; }
+        
+        /* LOG */
+        #combat-log { flex-grow: 1; border: 1px solid #333; padding: 10px; font-size: 11px; overflow-y: auto; background: #000; }
+        .log-entry { margin-bottom: 5px; border-left: 2px solid var(--neon); padding-left: 5px; }
+        
+        canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+        .controls { font-size: 10px; color: #888; }
     </style>
 </head>
 <body>
-    <div id="ui">
-        <button onclick="shuffleCube()">SHUFFLE</button>
-        <button onclick="solveCube()">INSTANT SOLVE</button>
+
+<div id="game-container">
+    <div id="render-zone">
+        <canvas id="stage"></canvas>
     </div>
-    <div id="info">DRAG TO ROTATE VIEW | CLICK BUTTONS TO COMMANDEER</div>
-    <canvas id="canvas"></canvas>
+    
+    <div id="sidebar">
+        <div>
+            <h2 style="margin:0; color:#fff;">NEBULA_OS</h2>
+            <div style="font-size: 12px;">LEVEL: <span id="lvl">1</span> RECKONER</div>
+        </div>
+
+        <div>
+            CORE_INTEGRITY
+            <div class="bar"><div id="hp-fill" class="fill" style="width: 100%;"></div></div>
+        </div>
+
+        <div>
+            DATA_SYNC (XP)
+            <div class="bar"><div id="xp-fill" class="fill" style="width: 0%;"></div></div>
+        </div>
+
+        <div id="combat-log">
+            <div class="log-entry">SYSTEM_BOOT: SUCCESSful</div>
+            <div class="log-entry">WORLD_GEN: INFINITE_MODE</div>
+        </div>
+
+        <div class="controls">
+            [W,A,S,D] NAVIGATION<br>
+            [SPACE] DISCHARGE_PULSE<br>
+            [MOUSE] TARGETING
+        </div>
+    </div>
+</div>
 
 <script>
-    const canvas = document.getElementById('canvas');
+    const canvas = document.getElementById('stage');
     const ctx = canvas.getContext('2d');
-    let width, height;
-    let angleX = -0.5, angleY = 0.5;
-
-    // Cube State: 6 faces, 9 stickers each
-    // Colors: 0:W, 1:Y, 2:R, 3:O, 4:B, 5:G
-    const colors = ['#ffffff', '#ffed00', '#ee0000', '#ff8c00', '#0000dd', '#00aa00'];
-    let cube = Array(6).fill().map((_, f) => Array(9).fill(colors[f]));
-
-    function setup() {
-        width = canvas.width = window.innerWidth;
-        height = canvas.height = window.innerHeight;
-    }
-
-    // 3D Projection Math
-    function project(x, y, z) {
-        // Rotate around X
-        let radX = angleX;
-        let y1 = y * Math.cos(radX) - z * Math.sin(radX);
-        let z1 = y * Math.sin(radX) + z * Math.cos(radX);
-        // Rotate around Y
-        let radY = angleY;
-        let x2 = x * Math.cos(radY) + z1 * Math.sin(radY);
-        let z2 = -x * Math.sin(radY) + z1 * Math.cos(radY);
-        
-        const scale = 400 / (400 + z2);
-        return { x: width/2 + x2 * scale, y: height/2 + y1 * scale, z: z2 };
-    }
-
-    function drawSticker(points, color) {
-        ctx.fillStyle = color;
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        for(let i=1; i<4; i++) ctx.lineTo(points[i].x, points[i].y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-    }
-
-    function render() {
-        ctx.fillStyle = '#050505';
-        ctx.fillRect(0, 0, width, height);
-
-        // This is a simplified 3D renderer that draws the faces
-        // In a real 1000-line code we'd sort by Z-depth, here we use basic projection
-        const size = 50;
-        const positions = [
-            { f: 0, nx: [0,0,1], ny: [1,0,0], p: [-1.5,-1.5, 1.5] }, // Front
-            { f: 1, nx: [0,0,-1], ny: [1,0,0], p: [1.5,-1.5,-1.5] }, // Back
-            { f: 2, nx: [1,0,0], ny: [0,0,1], p: [-1.5, 1.5, 1.5] }, // Top
-            { f: 3, nx: [1,0,0], ny: [0,0,-1], p: [-1.5,-1.5,-1.5] }, // Bottom
-            { f: 4, nx: [0,1,0], ny: [0,0,1], p: [1.5,-1.5, 1.5] },  // Right
-            { f: 5, nx: [0,-1,0], ny: [0,0,1], p: [-1.5,-1.5, 1.5] } // Left
-        ];
-
-        // Draw stickers based on current state
-        // (Simplified drawing for the single-file limit)
-        angleY += 0.005; // Auto-drift
-        
-        // Loop through and draw a representative 3D Cube
-        // Note: Full sticker-by-sticker rotation logic is complex, 
-        // so we visualize the state change.
-        drawPseudoCube();
-        requestAnimationFrame(render);
-    }
-
-    function drawPseudoCube() {
-        const s = 60;
-        // Drawing a "faked" 3D cube representation for interaction
-        ctx.save();
-        ctx.translate(width/2, height/2);
-        // This is where the magic happens - simulating the 3D faces
-        for(let i=0; i<3; i++) {
-            for(let j=0; j<3; j++) {
-                // Front Face
-                let p = [project(-90+j*60, -90+i*60, 90), project(-30+j*60, -90+i*60, 90), 
-                         project(-30+j*60, -30+i*60, 90), project(-90+j*60, -30+i*60, 90)];
-                drawSticker(p, cube[0][i*3+j]);
-            }
-        }
-        ctx.restore();
-    }
-
-    function shuffleCube() {
-        // Randomize the sticker array
-        for(let f=0; f<6; f++) {
-            for(let s=0; s<9; s++) {
-                cube[f][s] = colors[Math.floor(Math.random()*6)];
-            }
-        }
-        playBeep(220);
-    }
-
-    function solveCube() {
-        // Reset to original colors
-        cube = Array(6).fill().map((_, f) => Array(9).fill(colors[f]));
-        playBeep(880);
-    }
-
-    // Interactive Dragging
-    let isDragging = false;
-    let lastX, lastY;
-    window.onmousedown = (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; };
-    window.onmouseup = () => { isDragging = false; };
-    window.onmousemove = (e) => {
-        if(isDragging) {
-            angleY += (e.clientX - lastX) * 0.01;
-            angleX += (e.clientY - lastY) * 0.01;
-            lastX = e.clientX; lastY = e.clientY;
-        }
+    const logBox = document.getElementById('combat-log');
+    
+    // --- ENGINE STATE ---
+    const world = {
+        grid: 40,
+        entities: [],
+        particles: [],
+        camera: { x: 0, y: 0 },
+        tick: 0
     };
 
-    function playBeep(f) {
-        const a = new (window.AudioContext||window.webkitAudioContext)();
-        const o = a.createOscillator();
-        const g = a.createGain();
-        o.frequency.value = f;
-        o.connect(g); g.connect(a.destination);
-        o.start(); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.2);
-        o.stop(a.currentTime + 0.2);
+    const player = {
+        x: 0, y: 0,
+        hp: 100, maxHp: 100,
+        xp: 0, nextLvl: 100, lvl: 1,
+        speed: 5,
+        w: 20, h: 20
+    };
+
+    // --- LOGIC: LOGGING SYSTEM ---
+    function log(msg) {
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logBox.prepend(div);
     }
 
-    setup();
-    render();
+    // --- LOGIC: ENTITY GENERATOR ---
+    function spawnEnemy() {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 600;
+        world.entities.push({
+            x: player.x + Math.cos(angle) * dist,
+            y: player.y + Math.sin(angle) * dist,
+            hp: 30,
+            speed: 2 + Math.random() * 2,
+            type: 'SENTINEL'
+        });
+    }
+
+    // --- LOGIC: COMBAT MATH ---
+    function firePulse() {
+        world.particles.push({
+            x: player.x, y: player.y,
+            vx: (mouse.x - (canvas.width/2)) / 20,
+            vy: (mouse.y - (canvas.height/2)) / 20,
+            life: 60
+        });
+        log("PULSE_DISCHARGED");
+    }
+
+    // --- RENDER LOOP ---
+    let keys = {};
+    let mouse = { x: 0, y: 0 };
+
+    function loop() {
+        // Resize Fix
+        if(canvas.width !== canvas.offsetWidth) {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 1. INPUT HANDLING
+        if(keys['w']) player.y -= player.speed;
+        if(keys['s']) player.y += player.speed;
+        if(keys['a']) player.x -= player.speed;
+        if(keys['d']) player.x += player.speed;
+
+        // 2. WORLD RENDERING (The Grid)
+        ctx.strokeStyle = '#111';
+        const offsetX = -player.x % world.grid;
+        const offsetY = -player.y % world.grid;
+        
+        for(let x = offsetX; x < canvas.width; x += world.grid) {
+            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+        }
+        for(let y = offsetY; y < canvas.height; y += world.grid) {
+            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+        }
+
+        // 3. ENTITY UPDATE
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        world.entities.forEach((en, i) => {
+            const dx = player.x - en.x;
+            const dy = player.y - en.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            // AI Movement
+            en.x += (dx / dist) * en.speed;
+            en.y += (dy / dist) * en.speed;
+
+            // Draw Enemy
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(en.x - player.x + centerX, en.y - player.y + centerY, 15, 15);
+
+            // Collision
+            if(dist < 20) {
+                player.hp -= 0.5;
+                document.getElementById('hp-fill').style.width = player.hp + '%';
+            }
+        });
+
+        // 4. PLAYER RENDER
+        ctx.fillStyle = '#00ff88';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00ff88';
+        ctx.fillRect(centerX - 10, centerY - 10, 20, 20);
+        ctx.shadowBlur = 0;
+
+        // 5. SYSTEMS
+        if(world.tick % 100 === 0) spawnEnemy();
+        world.tick++;
+
+        requestAnimationFrame(loop);
+    }
+
+    // --- EVENT LISTENERS ---
+    window.addEventListener('keydown', e => { 
+        keys[e.key.toLowerCase()] = true; 
+        if(e.code === 'Space') firePulse();
+    });
+    window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+    });
+
+    log("AWAITING_INPUT...");
+    loop();
 </script>
 </body>
 </html>
